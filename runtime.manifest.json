@@ -7,7 +7,7 @@
     "start": "C:\\Allprojects\\Start-Local1.cmd",
     "stop": "C:\\Allprojects\\Stop-Local1.cmd",
     "engine": "windows-cmd",
-    "notes": "PowerShell Runtime Manager is not used for Local 1 startup."
+    "notes": "The Windows CMD launcher delegates secure SQL credential resolution and Docker Compose startup to a same-process PowerShell bootstrap."
   },
   "repositoryRuntimePolicy": [
     {
@@ -35,7 +35,7 @@
       "name": "Docker SQL Server",
       "startupOrder": 1,
       "repository": "C:\\Allprojects\\SAXIO-Sentinel",
-      "command": "docker compose -f docker-compose.local.yml up -d",
+      "command": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File C:\\Allprojects\\Local1-Operations\\runtime\\local1\\Start-Local1Sql.ps1 -SentinelRepositoryPath C:\\Allprojects\\SAXIO-Sentinel",
       "port": 14333,
       "health": {
         "type": "tcp-listen",

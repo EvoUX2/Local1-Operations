@@ -30,6 +30,7 @@ set "SENTINEL_WEB_RUNTIME_BRANCH=runtime/local1-sentinel-web"
 set "SENTINEL_WEB_UPSTREAM=origin/main"
 set "REPO_SAXIO_WEB=%ALLPROJECTS%\Evo-Web\Evo-Web"
 set "DB_AUTHORITY=%ALLPROJECTS%\runtime\local1\startup-db-authority.ps1"
+set "SQL_BOOTSTRAP=%SCRIPT_ROOT%\runtime\local1\Start-Local1Sql.ps1"
 
 set "WAIT_SECONDS=240"
 set "FAIL_REASON="
@@ -138,7 +139,17 @@ echo   Ahead/Behind: %_SENTINEL_WEB_BEHIND% %_SENTINEL_WEB_AHEAD%
 echo   Working Tree Dirty: %_SENTINEL_WEB_RUNTIME_DIRTY%
 echo   Result: PASS
 
+if not exist "%SQL_BOOTSTRAP%" (
+  call :fail "Local 1 SQL secure bootstrap is missing." "Create or restore %SQL_BOOTSTRAP%"
+  goto :eof
+)
+
 if "%VALIDATE_ONLY%"=="1" (
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%" -ValidateOnly
+  if errorlevel 1 (
+    endlocal
+    exit /b 1
+  )
   echo.
   echo Validation-only mode complete.
   endlocal
@@ -190,11 +201,11 @@ if not exist "%REPO_SENTINEL%\docker-compose.local.yml" (
 )
 
 pushd "%REPO_SENTINEL%"
-docker compose -f docker-compose.local.yml up -d
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%"
 if errorlevel 1 (
   popd
-  call :fail "Docker SQL failed to start." "Ensure Docker Desktop is running, then retry Start-Local1.cmd."
-  goto :eof
+  endlocal
+  exit /b 1
 )
 popd
 
@@ -223,10 +234,17 @@ if not exist "%REPO_EVO%\Evo.Service.Host.API\Evo.Service.Host.API.csproj" (
   goto :eof
 )
 
+call :is_http_ready "http://localhost:5000"
+if not errorlevel 1 (
+  echo REUSED: EVO Auth/API is already healthy on port 5000.
+  goto evo_auth_api_ready
+)
+
 start "Local1 - EVO Auth/API" /D "%REPO_EVO%" cmd /k "set Sentinel__PiResourceKeyMapping__Enabled=true && echo Starting EVO Auth/API on :5000 && dotnet run --project Evo.Service.Host.API --urls http://localhost:5000"
 
 call :wait_http "http://localhost:5000" "EVO Auth/API"
 if errorlevel 1 goto :eof
+:evo_auth_api_ready
 
 rem ===========================================================================
 rem  3) Portfolio Intelligence API
@@ -236,6 +254,12 @@ echo [3/6] Portfolio Intelligence API
 if not exist "%REPO_SENTINEL%\services\portfolio-intelligence-api\Saxio.Sentinel.PortfolioIntelligence.Api.csproj" (
   call :fail "PI API project not found." "Confirm SAXIO-Sentinel services\\portfolio-intelligence-api exists."
   goto :eof
+)
+
+call :is_http_status_ready "http://127.0.0.1:5038/api/health/db" "200"
+if not errorlevel 1 (
+  echo REUSED: Portfolio Intelligence API is already healthy on port 5038.
+  goto pi_api_ready
 )
 
 rem Launch PI via the same validated database authority used by preflight.
@@ -248,6 +272,7 @@ if "%ALLOW_EXTERNAL_DB%"=="1" (
 
 call :wait_http_status "http://127.0.0.1:5038/api/health/db" "200" "Portfolio Intelligence API /api/health/db"
 if errorlevel 1 goto :eof
+:pi_api_ready
 
 rem ===========================================================================
 rem  4) Local Gateway
@@ -259,10 +284,17 @@ if not exist "%REPO_GATEWAY%\package.json" (
   goto :eof
 )
 
+call :is_http_ready "http://localhost:8080"
+if not errorlevel 1 (
+  echo REUSED: Local Gateway is already healthy on port 8080.
+  goto local_gateway_ready
+)
+
 start "Local1 - Gateway" /D "%REPO_GATEWAY%" cmd /k "echo Starting Local Gateway on :8080 && call npm.cmd start"
 
 call :wait_http "http://localhost:8080" "Local Gateway"
 if errorlevel 1 goto :eof
+:local_gateway_ready
 
 rem ===========================================================================
 rem  5) Sentinel Web
@@ -274,6 +306,12 @@ if not exist "%REPO_SENTINEL_WEB_RUNTIME%\package.json" (
   goto :eof
 )
 
+call :is_http_ready "http://localhost:5173"
+if not errorlevel 1 (
+  echo REUSED: Sentinel Web is already healthy on port 5173.
+  goto sentinel_web_ready
+)
+
 call :require_free_port 5173 "Sentinel Web"
 if errorlevel 1 goto :eof
 
@@ -281,6 +319,7 @@ start "Local1 - Sentinel Web" /D "%REPO_SENTINEL_WEB_RUNTIME%" cmd /k "set VITE_
 
 call :wait_http "http://localhost:5173" "Sentinel Web"
 if errorlevel 1 goto :eof
+:sentinel_web_ready
 
 rem ===========================================================================
 rem  6) SAXIO Web
@@ -292,10 +331,17 @@ if not exist "%REPO_SAXIO_WEB%\package.json" (
   goto :eof
 )
 
+call :is_http_ready "http://localhost:4201"
+if not errorlevel 1 (
+  echo REUSED: SAXIO Web is already healthy on port 4201.
+  goto saxio_web_ready
+)
+
 start "Local1 - SAXIO Web" /D "%REPO_SAXIO_WEB%" cmd /k "set NODE_OPTIONS=--openssl-legacy-provider --max-old-space-size=8192 && echo Starting SAXIO Web on :4201 && call npm.cmd run start:local"
 
 call :wait_http "http://localhost:4201" "SAXIO Web"
 if errorlevel 1 goto :eof
+:saxio_web_ready
 
 rem ===========================================================================
 rem  Final verification
@@ -579,6 +625,19 @@ if %_I% GEQ %WAIT_SECONDS% (
 )
 ping -n 3 127.0.0.1 >NUL
 goto wait_http_loop
+
+:is_http_ready
+set "_CODE="
+for /f "delims=" %%C in ('curl.exe -s -o NUL -w "%%{http_code}" --connect-timeout 2 --max-time 5 "%~1" 2^>NUL') do set "_CODE=%%C"
+if "%_CODE%"=="" exit /b 1
+if "%_CODE%"=="000" exit /b 1
+exit /b 0
+
+:is_http_status_ready
+set "_CODE="
+for /f "delims=" %%C in ('curl.exe -s -o NUL -w "%%{http_code}" --connect-timeout 2 --max-time 5 "%~1" 2^>NUL') do set "_CODE=%%C"
+if "%_CODE%"=="%~2" exit /b 0
+exit /b 1
 
 :wait_http_status
 set "_URL=%~1"
