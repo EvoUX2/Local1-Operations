@@ -1,0 +1,141 @@
+{
+  "$schema": "https://platform.evo/governance/runtime/manifest.schema.json",
+  "runtime": "local1",
+  "runtimeVersion": "1.0",
+  "description": "Governed Local 1 runtime topology. Authoritative source of truth for services, ports, startup order, dependencies, health checks, and required environment. Execution layer: C:\\Allprojects\\Start-Local1.cmd (Windows CMD only).",
+  "launcher": {
+    "start": "C:\\Allprojects\\Start-Local1.cmd",
+    "stop": "C:\\Allprojects\\Stop-Local1.cmd",
+    "engine": "windows-cmd",
+    "notes": "PowerShell Runtime Manager is not used for Local 1 startup."
+  },
+  "repositoryRuntimePolicy": [
+    {
+      "repository": "Sentinel Web",
+      "developmentPath": "C:\\Allprojects\\Sentinel Web",
+      "runtimePath": "C:\\Allprojects\\Local1\\Sentinel-Web-Runtime",
+      "remote": "origin",
+      "runtimeBranch": "runtime/local1-sentinel-web",
+      "upstreamBranch": "origin/main",
+      "workingTreeMustBeClean": true,
+      "synchronizationPolicy": "fast-forward-only",
+      "requireUpstreamParity": true,
+      "mutateDevelopmentCheckout": false
+    }
+  ],
+  "environments": {
+    "local1": {
+      "secretSource": "C:\\Allprojects\\SAXIO-Sentinel\\runtime\\local1\\.env.local",
+      "configSource": "C:\\Allprojects\\SAXIO-Sentinel\\runtime\\local1\\.env.local"
+    }
+  },
+  "services": [
+    {
+      "id": "docker-sql",
+      "name": "Docker SQL Server",
+      "startupOrder": 1,
+      "repository": "C:\\Allprojects\\SAXIO-Sentinel",
+      "command": "docker compose -f docker-compose.local.yml up -d",
+      "port": 14333,
+      "health": {
+        "type": "tcp-listen",
+        "port": 14333
+      },
+      "dependencies": [],
+      "managedByStop": false
+    },
+    {
+      "id": "evo-auth-api",
+      "name": "EVO Auth/API",
+      "startupOrder": 2,
+      "repository": "C:\\Allprojects\\Evo-Services\\Evo-Service",
+      "command": "dotnet run --project Evo.Service.Host.API --urls http://localhost:5000",
+      "port": 5000,
+      "health": {
+        "type": "http",
+        "url": "http://localhost:5000"
+      },
+      "requiredEnvironment": [
+        "Sentinel__PiResourceKeyMapping__Enabled"
+      ],
+      "dependencies": ["docker-sql"],
+      "managedByStop": true
+    },
+    {
+      "id": "pi-api",
+      "name": "Portfolio Intelligence API",
+      "startupOrder": 3,
+      "repository": "C:\\Allprojects\\SAXIO-Sentinel",
+      "project": "services\\portfolio-intelligence-api",
+      "command": "dotnet run --no-launch-profile --project services\\portfolio-intelligence-api\\Saxio.Sentinel.PortfolioIntelligence.Api.csproj --urls http://127.0.0.1:5038",
+      "port": 5038,
+      "envFile": "runtime\\local1\\.env.local",
+      "health": {
+        "type": "http-status",
+        "url": "http://127.0.0.1:5038/api/health/db",
+        "expectStatus": 200
+      },
+      "dependencies": ["docker-sql", "evo-auth-api"],
+      "managedByStop": true
+    },
+    {
+      "id": "local-gateway",
+      "name": "Local Gateway",
+      "startupOrder": 4,
+      "repository": "C:\\Allprojects\\local-gateway",
+      "command": "npm start",
+      "port": 8080,
+      "health": {
+        "type": "http",
+        "url": "http://localhost:8080"
+      },
+      "dependencies": ["evo-auth-api", "pi-api"],
+      "managedByStop": true
+    },
+    {
+      "id": "sentinel-web",
+      "name": "Sentinel Web",
+      "startupOrder": 5,
+      "repository": "C:\\Allprojects\\Local1\\Sentinel-Web-Runtime",
+      "developmentRepository": "C:\\Allprojects\\Sentinel Web",
+      "command": "npm run dev -- --port 5173 --strictPort",
+      "port": 5173,
+      "requiredEnvironment": [
+        "VITE_SENTINEL_WEB_BASE_PATH",
+        "VITE_PI_API_PROXY_TARGET"
+      ],
+      "health": {
+        "type": "http",
+        "url": "http://localhost:5173"
+      },
+      "dependencies": ["pi-api"],
+      "managedByStop": true
+    },
+    {
+      "id": "saxio-web",
+      "name": "SAXIO Web",
+      "startupOrder": 6,
+      "repository": "C:\\Allprojects\\Evo-Web\\Evo-Web",
+      "command": "npm run start:local",
+      "port": 4201,
+      "requiredEnvironment": [
+        "NODE_OPTIONS"
+      ],
+      "health": {
+        "type": "http",
+        "url": "http://localhost:4201"
+      },
+      "dependencies": ["evo-auth-api", "local-gateway"],
+      "managedByStop": true
+    }
+  ],
+  "startupOrder": [
+    "docker-sql",
+    "evo-auth-api",
+    "pi-api",
+    "local-gateway",
+    "sentinel-web",
+    "saxio-web"
+  ],
+  "verifyPorts": [5000, 5038, 5173, 4201, 8080]
+}
