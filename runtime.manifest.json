@@ -21,6 +21,19 @@
       "synchronizationPolicy": "fast-forward-only",
       "requireUpstreamParity": true,
       "mutateDevelopmentCheckout": false
+    },
+    {
+      "repository": "Sentinel-Logic",
+      "developmentPath": "C:\\Allprojects\\Sentinel-Logic",
+      "runtimePath": "C:\\Allprojects\\Local1\\Sentinel-Logic-Runtime",
+      "remote": "origin",
+      "runtimeBranch": "runtime/local1-sentinel-logic",
+      "upstreamBranch": "origin/main",
+      "workingTreeMustBeClean": true,
+      "synchronizationPolicy": "fast-forward-only",
+      "requireUpstreamParity": true,
+      "mutateDevelopmentCheckout": false,
+      "dependencyJunctionPath": "C:\\Allprojects\\Local1\\Sentinel-Logic"
     }
   ],
   "environments": {

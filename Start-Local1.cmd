@@ -31,6 +31,7 @@ set "SENTINEL_WEB_UPSTREAM=origin/main"
 set "REPO_SAXIO_WEB=%ALLPROJECTS%\Evo-Web\Evo-Web"
 set "DB_AUTHORITY=%ALLPROJECTS%\runtime\local1\startup-db-authority.ps1"
 set "SQL_BOOTSTRAP=%SCRIPT_ROOT%\runtime\local1\Start-Local1Sql.ps1"
+set "SENTINEL_LOGIC_BOOTSTRAP=%SCRIPT_ROOT%\runtime\local1\Ensure-Local1SentinelLogic.ps1"
 
 set "WAIT_SECONDS=240"
 set "FAIL_REASON="
@@ -57,6 +58,11 @@ endlocal
 exit /b 2
 
 :args_done
+
+if not exist "%MANIFEST%" (
+  call :fail "Governed runtime manifest is missing." "Create or restore %MANIFEST%"
+  goto :eof
+)
 
 rem ===========================================================================
 rem  Preflight: required tooling and Sentinel Web dependency state
@@ -101,31 +107,6 @@ if not exist "%REPO_SENTINEL_WEB_RUNTIME%\package-lock.json" (
   goto :eof
 )
 
-if not exist "%REPO_SENTINEL_WEB_RUNTIME%\node_modules\.bin\vite.cmd" goto restore_sentinel_web_dependencies
-pushd "%REPO_SENTINEL_WEB_RUNTIME%"
-call npm.cmd ls vite --depth=0 >NUL 2>&1
-set "_VITE_CHECK_EXIT=%ERRORLEVEL%"
-popd
-if not "%_VITE_CHECK_EXIT%"=="0" goto restore_sentinel_web_dependencies
-goto sentinel_web_dependencies_ready
-
-:restore_sentinel_web_dependencies
-echo Sentinel Web dependencies are missing or invalid. Restoring from package-lock.json...
-pushd "%REPO_SENTINEL_WEB_RUNTIME%"
-call npm.cmd ci
-set "_NPM_CI_EXIT=%ERRORLEVEL%"
-popd
-if not "%_NPM_CI_EXIT%"=="0" (
-  call :fail "Sentinel Web dependency installation failed." "Review the npm ci error above, including registry credentials if requested, then retry Start-Local1.cmd."
-  goto :eof
-)
-
-:sentinel_web_dependencies_ready
-if not exist "%REPO_SENTINEL_WEB_RUNTIME%\node_modules\.bin\vite.cmd" (
-  call :fail "Vite remains unavailable after Sentinel Web dependency validation." "Review package.json and package-lock.json in %REPO_SENTINEL_WEB_RUNTIME%, then retry npm ci."
-  goto :eof
-)
-
 echo.
 echo Sentinel Web Runtime:
 echo   Development Path: %REPO_SENTINEL_WEB_DEV%
@@ -139,17 +120,40 @@ echo   Ahead/Behind: %_SENTINEL_WEB_BEHIND% %_SENTINEL_WEB_AHEAD%
 echo   Working Tree Dirty: %_SENTINEL_WEB_RUNTIME_DIRTY%
 echo   Result: PASS
 
+if not exist "%SENTINEL_LOGIC_BOOTSTRAP%" (
+  call :fail "Sentinel-Logic runtime bootstrap is missing." "Create or restore %SENTINEL_LOGIC_BOOTSTRAP%"
+  goto :eof
+)
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SENTINEL_LOGIC_BOOTSTRAP%" -PortfolioRoot "%ALLPROJECTS%" -Mode ProvisionRuntime
+if errorlevel 1 (
+  endlocal
+  exit /b 1
+)
+
 if not exist "%SQL_BOOTSTRAP%" (
   call :fail "Local 1 SQL secure bootstrap is missing." "Create or restore %SQL_BOOTSTRAP%"
   goto :eof
 )
 
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%" -ValidateOnly
+if errorlevel 1 (
+  endlocal
+  exit /b 1
+)
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SENTINEL_LOGIC_BOOTSTRAP%" -PortfolioRoot "%ALLPROJECTS%" -Mode ValidateDependencies
+if errorlevel 1 (
+  endlocal
+  exit /b 1
+)
+
+if not exist "%REPO_SENTINEL_WEB_RUNTIME%\node_modules\.bin\vite.cmd" (
+  call :fail "Vite remains unavailable after governed Sentinel Web dependency validation." "Review package.json and package-lock.json in %REPO_SENTINEL_WEB_RUNTIME%, then retry Start-Local1.cmd."
+  goto :eof
+)
+
 if "%VALIDATE_ONLY%"=="1" (
-  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%" -ValidateOnly
-  if errorlevel 1 (
-    endlocal
-    exit /b 1
-  )
   echo.
   echo Validation-only mode complete.
   endlocal
@@ -163,11 +167,6 @@ echo  Manifest: %MANIFEST%
 echo  External DB authorized: %ALLOW_EXTERNAL_DB%
 echo ================================================================
 echo.
-
-if not exist "%MANIFEST%" (
-  call :fail "Governed runtime manifest is missing." "Create or restore %MANIFEST%"
-  goto :eof
-)
 
 if not exist "%ENV_LOCAL%" (
   call :fail "Local 1 env file is missing." "Create SAXIO-Sentinel\runtime\local1\.env.local from the approved Local 1 secret set. See Enterprise Playbook Evo\governance\runtime\Local1-Developer-Onboarding.md"
