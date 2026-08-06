@@ -12,13 +12,24 @@ function Invoke-Local1Git {
         [scriptblock]$GitAdapter
     )
     if ($GitAdapter) { return (& $GitAdapter $RepositoryPath $Arguments) }
-    $output = @(& git -C $RepositoryPath @Arguments 2>&1)
-    [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output -join [Environment]::NewLine) }
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& git -C $RepositoryPath @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+        [pscustomobject]@{ ExitCode = $exitCode; Output = ($output -join [Environment]::NewLine) }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
 }
 
 function Assert-Local1GitSuccess {
     param($Result, [string]$Code, [string]$Message)
-    if ([int]$Result.ExitCode -ne 0) { throw ("{0}|{1}" -f $Code, $Message) }
+    if ([int]$Result.ExitCode -ne 0) {
+        $diagnosticMessage = if ($Result.Output) { "{0} Details: {1}" -f $Message, $Result.Output } else { $Message }
+        throw ("{0}|{1}" -f $Code, $diagnosticMessage)
+    }
     $Result.Output
 }
 
@@ -65,7 +76,7 @@ function Ensure-Local1SentinelLogicRuntime {
     $developmentBranch = (Assert-Local1GitSuccess $developmentBranchResult 'DEVELOPMENT_REPOSITORY_INVALID' 'Sentinel-Logic development branch could not be read.').Trim()
 
     $fetch = Invoke-Local1Git -RepositoryPath $DevelopmentPath -Arguments @('fetch', 'origin', '--prune') -GitAdapter $GitAdapter
-    Assert-Local1GitSuccess $fetch 'FETCH_FAILED' 'Failed to fetch origin for Sentinel-Logic.' | Out-Null
+    Assert-Local1GitSuccess $fetch 'GIT_FETCH_FAILED' 'Failed to fetch origin for Sentinel-Logic.' | Out-Null
 
     $upstreamRef = Invoke-Local1Git -RepositoryPath $DevelopmentPath -Arguments @('show-ref', '--verify', '--quiet', "refs/remotes/$Upstream") -GitAdapter $GitAdapter
     if ([int]$upstreamRef.ExitCode -ne 0) { throw ("UPSTREAM_MISSING|Required Sentinel-Logic upstream does not exist.|{0}" -f $Upstream) }
@@ -260,8 +271,9 @@ function Test-Local1SentinelLogicNodeModuleLink {
 
 function Get-Local1DependencyReadinessValues {
     param([string]$SentinelWebRuntimePath, [string]$SentinelLogicRuntimePath, [string]$JunctionPath)
-    $head = @(& git -C $SentinelLogicRuntimePath rev-parse HEAD 2>$null) -join ''
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($head)) { return $null }
+    $headResult = Invoke-Local1Git -RepositoryPath $SentinelLogicRuntimePath -Arguments @('rev-parse', 'HEAD')
+    if ($headResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($headResult.Output)) { return $null }
+    $head = $headResult.Output
     $jsPath = Join-Path $SentinelLogicRuntimePath $script:RequiredJsExport
     $typePath = Join-Path $SentinelLogicRuntimePath $script:RequiredTypeExport
     $lockPath = Join-Path $SentinelWebRuntimePath 'package-lock.json'
