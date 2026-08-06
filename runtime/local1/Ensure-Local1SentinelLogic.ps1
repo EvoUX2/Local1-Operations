@@ -59,9 +59,20 @@ function Write-Local1SentinelLogicFailure {
             Write-Output 'Suggested Fix:'
             Write-Output '  Inspect the governed Sentinel-Logic runtime worktree and package export contract.'
         }
+        'GIT_FETCH_FAILED' {
+            Write-Output 'Reason: Sentinel-Logic Local 1 runtime governance failed.'
+            Write-Output 'Failure Code: GIT_FETCH_FAILED'
+            if ($parts.Count -gt 1) {
+                Write-Output ("Details: {0}" -f $parts[1..($parts.Count - 1)] -join '|')
+            }
+            Write-Output 'Automatic cleanup/reset/deletion: DISABLED'
+        }
         default {
             Write-Output 'Reason: Sentinel-Logic Local 1 runtime governance failed.'
             Write-Output ("Failure Code: {0}" -f $code)
+            if ($parts.Count -gt 1) {
+                Write-Output ("Details: {0}" -f $parts[1..($parts.Count - 1)] -join '|')
+            }
             Write-Output 'Automatic cleanup/reset/deletion: DISABLED'
         }
     }
