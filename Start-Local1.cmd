@@ -29,7 +29,8 @@ set "REPO_SENTINEL_WEB_RUNTIME=%ALLPROJECTS%\Local1\Sentinel-Web-Runtime"
 set "SENTINEL_WEB_RUNTIME_BRANCH=runtime/local1-sentinel-web"
 set "SENTINEL_WEB_UPSTREAM=origin/main"
 set "REPO_SAXIO_WEB=%ALLPROJECTS%\Evo-Web\Evo-Web"
-set "DB_AUTHORITY=%ALLPROJECTS%\runtime\local1\startup-db-authority.ps1"
+set "DB_AUTHORITY=%REPO_SENTINEL%\runtime\local1\startup-db-authority.ps1"
+set "PI_LAUNCHER=%REPO_SENTINEL%\runtime\local1\launch-pi-api.cmd"
 set "SQL_BOOTSTRAP=%SCRIPT_ROOT%\runtime\local1\Start-Local1Sql.ps1"
 set "SENTINEL_LOGIC_BOOTSTRAP=%SCRIPT_ROOT%\runtime\local1\Ensure-Local1SentinelLogic.ps1"
 
@@ -37,12 +38,18 @@ set "WAIT_SECONDS=240"
 set "FAIL_REASON="
 set "FAIL_FIX="
 set "ALLOW_EXTERNAL_DB=0"
+set "USE_DOCKER_SQL=0"
 set "VALIDATE_ONLY=0"
 
 :parse_args
 if "%~1"=="" goto args_done
+if /I "%~1"=="-UseDockerSql" (
+  set "USE_DOCKER_SQL=1"
+  shift
+  goto parse_args
+)
 if /I "%~1"=="-AllowExternalDb" (
-  set "ALLOW_EXTERNAL_DB=1"
+  echo NOTE: -AllowExternalDb is obsolete. 67-server SentinelStaging is the default Local1 Crime PI database.
   shift
   goto parse_args
 )
@@ -53,7 +60,7 @@ if /I "%~1"=="-ValidateOnly" (
 )
 echo ERROR
 echo Unsupported Start-Local1.cmd argument: %~1
-echo Supported overrides: -AllowExternalDb, -ValidateOnly
+echo Supported overrides: -UseDockerSql, -ValidateOnly
 endlocal
 exit /b 2
 
@@ -164,7 +171,8 @@ echo.
 echo ================================================================
 echo  Local 1 Startup
 echo  Manifest: %MANIFEST%
-echo  External DB authorized: %ALLOW_EXTERNAL_DB%
+echo  Canonical Crime PI DB: 67.225.176.136 / SentinelStaging
+echo  Docker SQL override: %USE_DOCKER_SQL%
 echo ================================================================
 echo.
 
@@ -190,31 +198,36 @@ set "NODE_OPTIONS=--openssl-legacy-provider --max-old-space-size=8192"
 if "%SAXIO_SENTINEL_DOCKER_PORT%"=="" set "SAXIO_SENTINEL_DOCKER_PORT=14333"
 
 rem ===========================================================================
-rem  1) Docker SQL
+rem  1) Docker SQL (secondary Crime PI substrate)
 rem ===========================================================================
 echo.
 echo [1/6] Docker SQL Server
-if not exist "%REPO_SENTINEL%\docker-compose.local.yml" (
-  call :fail "docker-compose.local.yml not found under SAXIO-Sentinel." "Confirm SAXIO-Sentinel is cloned at %REPO_SENTINEL%"
-  goto :eof
-)
+if "%USE_DOCKER_SQL%"=="1" (
+  if not exist "%REPO_SENTINEL%\docker-compose.local.yml" (
+    call :fail "docker-compose.local.yml not found under SAXIO-Sentinel." "Confirm SAXIO-Sentinel is cloned at %REPO_SENTINEL%"
+    goto :eof
+  )
 
-pushd "%REPO_SENTINEL%"
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%"
-if errorlevel 1 (
+  pushd "%REPO_SENTINEL%"
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%"
+  if errorlevel 1 (
+    popd
+    endlocal
+    exit /b 1
+  )
   popd
-  endlocal
-  exit /b 1
-)
-popd
 
-call :wait_port 14333 "Docker SQL Server"
-if errorlevel 1 goto :eof
+  call :wait_port 14333 "Docker SQL Server"
+  if errorlevel 1 goto :eof
+) else (
+  echo SKIPPED: Docker SQL is secondary. Canonical Crime PI is 67.225.176.136 / SentinelStaging.
+  echo Use -UseDockerSql to require localhost,14333.
+)
 
 echo.
 echo [db] Validating governed PI database authority...
-if "%ALLOW_EXTERNAL_DB%"=="1" (
-  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%" -AllowExternalDb
+if "%USE_DOCKER_SQL%"=="1" (
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%" -UseDockerSql
 ) else (
   powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%"
 )
@@ -261,11 +274,16 @@ if not errorlevel 1 (
   goto pi_api_ready
 )
 
-rem Launch PI via the same validated database authority used by preflight.
-if "%ALLOW_EXTERNAL_DB%"=="1" (
-  start "Local1 - PI API" cmd /c call "%ALLPROJECTS%\runtime\local1\launch-pi-api.cmd" -AllowExternalDb
+if not exist "%PI_LAUNCHER%" (
+  call :fail "Governed PI launcher is missing." "Confirm SAXIO-Sentinel runtime\\local1\\launch-pi-api.cmd exists."
+  goto :eof
+)
+
+rem Launch PI from current SAXIO-Sentinel. Canonical DB is 67-server SentinelStaging.
+if "%USE_DOCKER_SQL%"=="1" (
+  start "Local1 - PI API" cmd /c call "%PI_LAUNCHER%" -UseDockerSql
 ) else (
-  start "Local1 - PI API" cmd /c call "%ALLPROJECTS%\runtime\local1\launch-pi-api.cmd"
+  start "Local1 - PI API" cmd /c call "%PI_LAUNCHER%"
 )
 
 
@@ -314,7 +332,7 @@ if not errorlevel 1 (
 call :require_free_port 5173 "Sentinel Web"
 if errorlevel 1 goto :eof
 
-start "Local1 - Sentinel Web" /D "%REPO_SENTINEL_WEB_RUNTIME%" cmd /k "set VITE_SENTINEL_WEB_BASE_PATH=/sentinel/ && set VITE_PI_API_PROXY_TARGET=http://127.0.0.1:5038 && echo Starting Sentinel Web on :5173 from %REPO_SENTINEL_WEB_RUNTIME% && call npm.cmd run dev -- --port 5173 --strictPort"
+start "Local1 - Sentinel Web" /D "%REPO_SENTINEL_WEB_RUNTIME%" cmd /k "set VITE_SENTINEL_WEB_BASE_PATH=/sentinel/ && set VITE_PI_API_PROXY_TARGET=http://127.0.0.1:5038 && set VITE_PI_ENABLE_SAXIO_AUTHORIZED_WORKFLOWS=true && set VITE_CRIME_GOVERNED_DEVELOPMENT_PRINCIPAL_ID=%VITE_CRIME_GOVERNED_DEVELOPMENT_PRINCIPAL_ID% && echo Starting Sentinel Web on :5173 from %REPO_SENTINEL_WEB_RUNTIME% && call npm.cmd run dev -- --port 5173 --strictPort"
 
 call :wait_http "http://localhost:5173" "Sentinel Web"
 if errorlevel 1 goto :eof

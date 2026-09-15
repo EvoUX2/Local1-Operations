@@ -14,26 +14,29 @@ C:\Allprojects\Start-Local1.cmd
   |     synchronization:      fetch + fast-forward-only + parity (ahead/behind 0 0)
   |
   +-- docker compose -f SAXIO-Sentinel\docker-compose.local.yml up -d
-  |     sentinel-staging-sql -> localhost:14333
+  |     sentinel-staging-sql -> localhost:14333 (secondary Crime PI substrate only)
   |
-  +-- runtime\local1\startup-db-authority.ps1
+  +-- SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1
   |     read .env.local
-  |     select SQL_CONNECTION_STRING by default
-  |     block non-local SQL unless -AllowExternalDb
-  |     require database SentinelStaging
+  |     select ConnectionStrings__SentinelStagingDb by default
+  |     require 67.225.176.136 / SentinelStaging
+  |     Docker localhost,14333 only when -UseDockerSql
   |     verify TCP reachability
-  |     verify four governed Crime tables read-only
-  |     print server, database, connection source, configuration source
+  |     verify governed Crime/ISCI tables read-only
+  |     set SENTINEL_LOGIC_ROOT (Local1 junction or Sentinel-Logic)
+  |     print server, database, HEAD SHA, SENTINEL_LOGIC_ROOT
   |
   +-- EVO Auth/API
   |
-  +-- runtime\local1\launch-pi-api.cmd
+  +-- SAXIO-Sentinel\runtime\local1\launch-pi-api.cmd
+  |     current SAXIO-Sentinel checkout (not C:\tmp\pi-runtime-5038-restoration)
   |     |
-  |     +-- runtime\local1\startup-db-authority.ps1 -LaunchPiApi
+  |     +-- SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1 -LaunchPiApi
   |           repeat fail-fast validation
-  |           load non-database Local 1 environment
+  |           load Local 1 environment
+  |           set SENTINEL_LOGIC_ROOT
   |           set all three PI connection aliases to one authority
-  |           dotnet run --no-launch-profile
+  |           dotnet run --no-launch-profile from current SAXIO-Sentinel
   |           Portfolio Intelligence API :5038
   |
   +-- Local Gateway :8080
