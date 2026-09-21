@@ -1,13 +1,37 @@
 {
   "$schema": "https://platform.evo/governance/runtime/manifest.schema.json",
   "runtime": "local1",
-  "runtimeVersion": "1.0",
-  "description": "Governed Local 1 runtime topology. Authoritative source of truth for services, ports, startup order, dependencies, health checks, and required environment. Execution layer: C:\\Allprojects\\Start-Local1.cmd (Windows CMD only).",
+  "runtimeVersion": "1.1",
+  "description": "Governed Local 1 runtime topology. Authoritative source of truth for cross-repository services, ports, startup order, dependencies, health checks, and environment wiring. Execution layer: C:\\Allprojects\\Start-Local1.cmd (Windows CMD wrapper) -> C:\\Allprojects\\Local1-Operations\\Start-Local1.cmd. PI/database substrate authority is delegated to SAXIO-Sentinel runtime/local1 scripts.",
   "launcher": {
     "start": "C:\\Allprojects\\Start-Local1.cmd",
+    "startSource": "C:\\Allprojects\\Local1-Operations\\Start-Local1.cmd",
     "stop": "C:\\Allprojects\\Stop-Local1.cmd",
+    "stopSource": "C:\\Allprojects\\Local1-Operations\\Stop-Local1.cmd",
     "engine": "windows-cmd",
-    "notes": "The Windows CMD launcher delegates secure SQL credential resolution and Docker Compose startup to a same-process PowerShell bootstrap."
+    "notes": "Default Crime PI substrate is 67.225.176.136 / SentinelStaging, selected by SAXIO-Sentinel runtime/local1/startup-db-authority.ps1 and launched by SAXIO-Sentinel runtime/local1/launch-pi-api.cmd. Docker SQL is an explicit -UseDockerSql development/test override, not a default startup dependency. -AllowExternalDb is obsolete and is not an authority. Secure SQL credential resolution and Docker Compose run only on the -UseDockerSql path."
+  },
+  "crimePiDatabase": {
+    "authorityRepository": "SAXIO-Sentinel",
+    "authorityScript": "C:\\Allprojects\\SAXIO-Sentinel\\runtime\\local1\\startup-db-authority.ps1",
+    "piLauncher": "C:\\Allprojects\\SAXIO-Sentinel\\runtime\\local1\\launch-pi-api.cmd",
+    "environmentFile": "C:\\Allprojects\\SAXIO-Sentinel\\runtime\\local1\\.env.local",
+    "default": {
+      "server": "67.225.176.136",
+      "port": 1433,
+      "database": "SentinelStaging",
+      "connectionSource": "ConnectionStrings__SentinelStagingDb",
+      "overrideFlag": null
+    },
+    "dockerSqlOverride": {
+      "server": "localhost",
+      "port": 14333,
+      "database": "SentinelStaging",
+      "connectionSource": "SQL_CONNECTION_STRING",
+      "overrideFlag": "-UseDockerSql",
+      "role": "development-test-override"
+    },
+    "obsoleteFlags": ["-AllowExternalDb"]
   },
   "repositoryRuntimePolicy": [
     {
@@ -47,6 +71,9 @@
       "id": "docker-sql",
       "name": "Docker SQL Server",
       "startupOrder": 1,
+      "requiredByDefault": false,
+      "overrideFlag": "-UseDockerSql",
+      "role": "development-test-override",
       "repository": "C:\\Allprojects\\SAXIO-Sentinel",
       "command": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File C:\\Allprojects\\Local1-Operations\\runtime\\local1\\Start-Local1Sql.ps1 -SentinelRepositoryPath C:\\Allprojects\\SAXIO-Sentinel",
       "port": 14333,
@@ -61,6 +88,7 @@
       "id": "evo-auth-api",
       "name": "EVO Auth/API",
       "startupOrder": 2,
+      "requiredByDefault": true,
       "repository": "C:\\Allprojects\\Evo-Services\\Evo-Service",
       "command": "dotnet run --project Evo.Service.Host.API --urls http://localhost:5000",
       "port": 5000,
@@ -71,16 +99,17 @@
       "requiredEnvironment": [
         "Sentinel__PiResourceKeyMapping__Enabled"
       ],
-      "dependencies": ["docker-sql"],
+      "dependencies": [],
       "managedByStop": true
     },
     {
       "id": "pi-api",
       "name": "Portfolio Intelligence API",
       "startupOrder": 3,
+      "requiredByDefault": true,
       "repository": "C:\\Allprojects\\SAXIO-Sentinel",
       "project": "services\\portfolio-intelligence-api",
-      "command": "dotnet run --no-launch-profile --project services\\portfolio-intelligence-api\\Saxio.Sentinel.PortfolioIntelligence.Api.csproj --urls http://127.0.0.1:5038",
+      "command": "C:\\Allprojects\\SAXIO-Sentinel\\runtime\\local1\\launch-pi-api.cmd",
       "port": 5038,
       "envFile": "runtime\\local1\\.env.local",
       "health": {
@@ -88,13 +117,14 @@
         "url": "http://127.0.0.1:5038/api/health/db",
         "expectStatus": 200
       },
-      "dependencies": ["docker-sql", "evo-auth-api"],
+      "dependencies": ["evo-auth-api"],
       "managedByStop": true
     },
     {
       "id": "local-gateway",
       "name": "Local Gateway",
       "startupOrder": 4,
+      "requiredByDefault": true,
       "repository": "C:\\Allprojects\\local-gateway",
       "command": "npm start",
       "port": 8080,
@@ -109,6 +139,7 @@
       "id": "sentinel-web",
       "name": "Sentinel Web",
       "startupOrder": 5,
+      "requiredByDefault": true,
       "repository": "C:\\Allprojects\\Local1\\Sentinel-Web-Runtime",
       "developmentRepository": "C:\\Allprojects\\Sentinel Web",
       "command": "npm run dev -- --port 5173 --strictPort",
@@ -128,6 +159,7 @@
       "id": "saxio-web",
       "name": "SAXIO Web",
       "startupOrder": 6,
+      "requiredByDefault": true,
       "repository": "C:\\Allprojects\\Evo-Web\\Evo-Web",
       "command": "npm run start:local",
       "port": 4201,
@@ -143,12 +175,21 @@
     }
   ],
   "startupOrder": [
-    "docker-sql",
     "evo-auth-api",
     "pi-api",
     "local-gateway",
     "sentinel-web",
     "saxio-web"
   ],
+  "optionalStartupOrder": {
+    "-UseDockerSql": [
+      "docker-sql",
+      "evo-auth-api",
+      "pi-api",
+      "local-gateway",
+      "sentinel-web",
+      "saxio-web"
+    ]
+  },
   "verifyPorts": [5000, 5038, 5173, 4201, 8080]
 }

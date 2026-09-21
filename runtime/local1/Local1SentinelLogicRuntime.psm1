@@ -362,6 +362,19 @@ function Invoke-Local1Npm {
     }
 }
 
+function Test-Local1NpmSentinelLogicListValid {
+    param(
+        $List,
+        [bool]$ModuleExists,
+        [bool]$ModuleLinkValid
+    )
+    if (-not $ModuleExists -or -not $ModuleLinkValid) { return $false }
+    if ([int]$List.ExitCode -eq 0 -and $List.Output -notmatch '(?i)\binvalid\b') { return $true }
+    # npm ls realpaths file:../Sentinel-Logic through the governed junction and
+    # reports that as invalid even when the install points at the Local1 junction.
+    return [bool]($List.Output -match '(?i)invalid:\s+"file:\.\./Sentinel-Logic".*Sentinel-Logic-Runtime')
+}
+
 function Ensure-Local1SentinelWebDependency {
     [CmdletBinding()]
     param(
@@ -398,7 +411,7 @@ function Ensure-Local1SentinelWebDependency {
         return [pscustomobject]@{ Valid=$true;Reinstalled=$false;OwnedViteProcessesStopped=0;ModulePath=$modulePath;NpmValidation='PreviouslyPassed';ActiveViteReused=$true }
     }
     $list = Invoke-Local1Npm -SentinelWebRuntimePath $SentinelWebRuntimePath -Operation List -NpmAdapter $NpmAdapter
-    $listValid = $moduleExists -and $moduleLinkValid -and [int]$list.ExitCode -eq 0 -and $list.Output -notmatch '(?i)\binvalid\b'
+    $listValid = Test-Local1NpmSentinelLogicListValid -List $list -ModuleExists $moduleExists -ModuleLinkValid $moduleLinkValid
     $reinstalled = $false
     $stopped = 0
     if (-not $listValid) {
@@ -409,7 +422,7 @@ function Ensure-Local1SentinelWebDependency {
         $moduleExists = if ($PathTester) { [bool](& $PathTester $modulePath) } else { Test-Path -LiteralPath $modulePath -PathType Container }
         $moduleLinkValid = if ($PathTester -and -not $NodeModuleAdapter) { $true } else { Test-Local1SentinelLogicNodeModuleLink -ModulePath $modulePath -JunctionPath $JunctionPath -NodeModuleAdapter $NodeModuleAdapter }
         $list = Invoke-Local1Npm -SentinelWebRuntimePath $SentinelWebRuntimePath -Operation List -NpmAdapter $NpmAdapter
-        $listValid = $moduleExists -and $moduleLinkValid -and [int]$list.ExitCode -eq 0 -and $list.Output -notmatch '(?i)\binvalid\b'
+        $listValid = Test-Local1NpmSentinelLogicListValid -List $list -ModuleExists $moduleExists -ModuleLinkValid $moduleLinkValid
     }
     if (-not $listValid) { throw 'DEPENDENCY_INVALID|Sentinel Web local dependency sentinel-logic is invalid after npm installation.' }
     if (-not $PathTester -or $ReadinessAdapter) { Save-Local1DependencyReadinessMarker $SentinelWebRuntimePath $SentinelLogicRuntimePath $JunctionPath $ReadinessAdapter }
@@ -431,5 +444,6 @@ Export-ModuleMember -Function @(
     'Test-Local1DependencyReadinessMarker',
     'Save-Local1DependencyReadinessMarker',
     'Test-Local1ViteGovernedImport',
+    'Test-Local1NpmSentinelLogicListValid',
     'Ensure-Local1SentinelWebDependency'
 )

@@ -4,9 +4,10 @@ title Local 1 Launcher
 cd /d "%~dp0"
 
 rem =============================================================================
-rem  Local 1 startup ? Windows CMD only
+rem  Local 1 startup -- Windows CMD only
 rem  Governed config: Local1-Operations\runtime.manifest.json
 rem  Secrets:        SAXIO-Sentinel\runtime\local1\.env.local
+rem  Stop:           Local1-Operations\Stop-Local1.cmd
 rem =============================================================================
 
 set "SCRIPT_ROOT=%~dp0"
@@ -138,15 +139,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "%SQL_BOOTSTRAP%" (
-  call :fail "Local 1 SQL secure bootstrap is missing." "Create or restore %SQL_BOOTSTRAP%"
-  goto :eof
-)
+if "%USE_DOCKER_SQL%"=="1" (
+  if not exist "%SQL_BOOTSTRAP%" (
+    call :fail "Local 1 SQL secure bootstrap is missing." "Create or restore %SQL_BOOTSTRAP%"
+    goto :eof
+  )
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%" -ValidateOnly
-if errorlevel 1 (
-  endlocal
-  exit /b 1
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%" -ValidateOnly
+  if errorlevel 1 (
+    endlocal
+    exit /b 1
+  )
 )
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SENTINEL_LOGIC_BOOTSTRAP%" -PortfolioRoot "%ALLPROJECTS%" -Mode ValidateDependencies
