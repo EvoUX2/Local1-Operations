@@ -1,22 +1,31 @@
 # Startup Remediation
 
-## Repair
+## Current Local 1 topology
 
-- Added one startup database authority script shared by preflight and PI launch.
-- Removed database selection from ad hoc batch-file aliasing.
-- Made `SQL_CONNECTION_STRING` the deterministic default Local 1 database source.
-- Bound all PI database aliases to the same validated authority.
-- Added explicit non-local protection with the sole override `-AllowExternalDb`.
-- Added TCP reachability and read-only governed-substrate checks before PI launch.
-- Added safe effective-connection output without credentials.
-- Preserved `--no-launch-profile` so IDE profiles cannot silently alter Local 1.
+Default Local 1 Crime PI substrate is `67.225.176.136` / `SentinelStaging`. Docker SQL (`localhost,14333`) is an explicit `-UseDockerSql` development/test override.
+
+Local1-Operations orchestrates startup/stop. SAXIO-Sentinel owns PI/database selection.
+
+## Orchestration repair
+
+- `Start-Local1.cmd` launches PI through `SAXIO-Sentinel\runtime\local1\launch-pi-api.cmd`.
+- Database selection is delegated to `SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1`. Local1-Operations does not keep a copy of that script.
+- Docker SQL credential resolution and Compose run only when `-UseDockerSql` is passed.
+- EVO Auth/API, Local Gateway, Sentinel Web, and SAXIO Web do not depend on Docker SQL in the default path.
+- `-AllowExternalDb` is obsolete. It is accepted only to print a note.
+- `Stop-Local1.cmd` is owned by this repository. It stops application listeners and leaves Docker SQL running.
 
 ## Required objects
+
+These remain SAXIO Crime/ISCI substrate checks, not Local1-Operations schema:
 
 - `pi.fact_incident`
 - `pi.dim_property`
 - `pi.dim_reporting_set`
 - `pi.bridge_incident_reporting_set`
+- `pi.bridge_incident_case_file`
+- `pi.isci_taxonomy_node`
+- `pi.isci_taxonomy_version`
 
 ## Validation
 
@@ -26,7 +35,25 @@ From `C:\Allprojects`:
 Start-Local1.cmd
 ```
 
-Sentinel Web runtime authority now uses a dedicated runtime worktree and does not mutate the active development checkout branch.
+Default path must not start Docker SQL. Expected SAXIO preflight evidence:
+
+```text
+Server               : 67.225.176.136:1433
+Database             : SentinelStaging
+Connection source    : ConnectionStrings__SentinelStagingDb
+Canonical target     : 67.225.176.136 / SentinelStaging
+Docker SQL override  : False
+```
+
+Docker remains available as an explicit override:
+
+```bat
+Start-Local1.cmd -UseDockerSql
+```
+
+That path must require `localhost,14333` / `SentinelStaging` and must not become the default.
+
+Sentinel Web runtime authority uses a dedicated runtime worktree and does not mutate the active development checkout branch.
 
 Runtime contract:
 
@@ -55,31 +82,16 @@ Remediation rules:
 
 The runtime SHA is recorded in startup output as evidence, but no permanent exact-SHA pinning is required for moving `origin/main` authority.
 
-Expected preflight evidence:
-
-```text
-Server               : localhost:14333
-Database             : SentinelStaging
-Connection source    : SQL_CONNECTION_STRING
-Configuration source : C:\Allprojects\SAXIO-Sentinel\runtime\local1\.env.local
-Crime substrate      : VALID
-```
-
-External startup requires an explicit operator decision:
-
-```bat
-Start-Local1.cmd -AllowExternalDb
-```
-
-The external target must still be reachable, use database `SentinelStaging`, and contain all required governed tables. Otherwise startup fails before PI is launched.
-
 ## Final authority
 
 ```text
-Local SQL
-  -> localhost:14333
-  -> SentinelStaging
+SAXIO-Sentinel runtime/local1
+  -> default 67.225.176.136 / SentinelStaging
+  -> optional -UseDockerSql localhost,14333 / SentinelStaging
   -> governed Crime substrate validation
-  -> one connection assigned to SaxioDb, SentinelStaging, SentinelStagingDb
+  -> one SAXIO-selected connection assigned to SaxioDb, SentinelStaging, SentinelStagingDb
   -> PI API
+
+Local1-Operations
+  -> topology, worktrees, startup order, ports, health, stop
 ```

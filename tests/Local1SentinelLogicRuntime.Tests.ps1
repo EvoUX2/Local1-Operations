@@ -221,6 +221,12 @@ try {
         $failed=$false;try{Ensure-Local1SentinelWebDependency -SentinelWebRuntimePath $webPath -SentinelLogicRuntimePath $runtimePath -JunctionPath $junctionPath -PathTester $dep.PathTester -NpmAdapter $dep.NpmAdapter -ProcessAdapter $dep.ProcessAdapter|Out-Null}catch{$failed=$_.Exception.Message.StartsWith('DEPENDENCY_INVALID|')}
         Assert-True $failed 'Invalid npm dependency did not fail after reinstall.'
     }
+    Invoke-Test '16b Junction realpath npm ls invalid is accepted' {
+        $output='`-- sentinel-logic@0.1.0-pre.1 invalid: "file:../Sentinel-Logic" from the root project -> .\..\Sentinel-Logic-Runtime'
+        $dep=New-DependencyScenario $webPath $runtimePath -ListOutputs @($output) -ListExitCodes @(1)
+        $result=Ensure-Local1SentinelWebDependency -SentinelWebRuntimePath $webPath -SentinelLogicRuntimePath $runtimePath -JunctionPath $junctionPath -PathTester $dep.PathTester -NpmAdapter $dep.NpmAdapter -ProcessAdapter $dep.ProcessAdapter
+        Assert-True ($result.Valid -and -not $result.Reinstalled -and $dep.State.InstallCount -eq 0) 'Governed junction realpath was treated as an invalid install.'
+    }
     Invoke-Test '17 Stale node modules triggers governed reinstall' {
         $dep=New-DependencyScenario $webPath $runtimePath -ModuleExists $false -ListOutputs @('invalid','sentinel-logic@0.1.0') -ListExitCodes @(1,0)
         $result=Ensure-Local1SentinelWebDependency -SentinelWebRuntimePath $webPath -SentinelLogicRuntimePath $runtimePath -JunctionPath $junctionPath -PathTester $dep.PathTester -NpmAdapter $dep.NpmAdapter -ProcessAdapter $dep.ProcessAdapter
