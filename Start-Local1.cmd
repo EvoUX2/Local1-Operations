@@ -24,6 +24,7 @@ set "ENV_LOCAL=%ALLPROJECTS%\SAXIO-Sentinel\runtime\local1\.env.local"
 set "REPO_SENTINEL=%ALLPROJECTS%\SAXIO-Sentinel"
 set "REPO_EVO=%ALLPROJECTS%\Evo-Services\Evo-Service"
 set "REPO_GATEWAY=%ALLPROJECTS%\local-gateway"
+set "GATEWAY_OWNERSHIP=%SCRIPT_ROOT%\runtime\local1\Invoke-Local1GatewayOwnership.ps1"
 set "REPO_SENTINEL_WEB_DEV=%ALLPROJECTS%\Sentinel Web"
 set "REPO_SENTINEL_WEB_RUNTIME=%ALLPROJECTS%\Local1\Sentinel-Web-Runtime"
 set "SENTINEL_WEB_RUNTIME_BRANCH=runtime/local1-sentinel-web"
@@ -283,11 +284,23 @@ if not exist "%REPO_GATEWAY%\package.json" (
   goto :eof
 )
 
-call :is_http_ready "http://localhost:8080"
-if not errorlevel 1 (
-  echo REUSED: Local Gateway is already healthy on port 8080.
-  goto local_gateway_ready
+if not exist "%GATEWAY_OWNERSHIP%" (
+  call :fail "SAXIO gateway ownership guard is missing." "Restore %GATEWAY_OWNERSHIP%"
+  goto :eof
 )
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%GATEWAY_OWNERSHIP%" -Mode Ensure -Port 8080
+if errorlevel 2 goto start_local_gateway
+if errorlevel 1 (
+  call :fail "Port 8080 is occupied by a process that is not the Local Gateway." "Stop the unrelated listener or run Stop-Local1.cmd, then retry Start-Local1.cmd. The ownership guard output above names the listener."
+  goto :eof
+)
+echo REUSED: Local Gateway owns port 8080.
+goto local_gateway_ready
+
+:start_local_gateway
+call :require_free_port 8080 "Local Gateway"
+if errorlevel 1 goto :eof
 
 start "Local1 - Gateway" /D "%REPO_GATEWAY%" cmd /k "echo Starting Local Gateway on :8080 && call npm.cmd start"
 
@@ -669,12 +682,29 @@ call :check_one 5173 "http://localhost:5173" "Sentinel Web"
 if errorlevel 1 set "_OK=0"
 call :check_one 4201 "http://localhost:4201" "SAXIO Web"
 if errorlevel 1 set "_OK=0"
-call :check_one 8080 "http://localhost:8080" "Local Gateway"
+call :check_gateway_routes
 if errorlevel 1 set "_OK=0"
 if "%_OK%"=="0" (
   call :fail "One or more Local 1 services failed final verification." "Review FAILED lines above, fix the listed console, then re-run Start-Local1.cmd or use Stop-Local1.cmd first."
   exit /b 1
 )
+exit /b 0
+
+:check_gateway_routes
+if not exist "%GATEWAY_OWNERSHIP%" (
+  echo   FAILED  :8080  SAXIO /app ownership
+  echo   Reason: ownership guard is missing: %GATEWAY_OWNERSHIP%
+  echo   Suggested Fix: Restore runtime\local1\Invoke-Local1GatewayOwnership.ps1 and retry Start-Local1.cmd.
+  exit /b 1
+)
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%GATEWAY_OWNERSHIP%" -Mode VerifyRoutes -Port 8080
+if errorlevel 1 (
+  echo   FAILED  :8080  SAXIO /app ownership
+  echo   Reason: localhost:8080/app is not the SAXIO application, or /sentinel is not Sentinel Web.
+  echo   Suggested Fix: local-gateway must own port 8080. Sentinel Web belongs on port 5173. Re-run Start-Local1.cmd so the ownership guard can displace a misbound Sentinel Vite server.
+  exit /b 1
+)
+echo   OK      :8080  SAXIO /app and Sentinel /sentinel
 exit /b 0
 
 :check_one
