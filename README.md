@@ -50,7 +50,7 @@ C:\Allprojects\Stop-Local1.cmd
 
 `-UseDockerSql` is the explicit local development/test override that starts Docker SQL (`localhost,14333` / `SentinelStaging`). It is not the default Crime PI substrate.
 
-`-AllowExternalDb` is obsolete. The normal Crime PI database is `67.225.176.136` / `SentinelStaging`, as established by merged SAXIO-Sentinel runtime authority.
+`-AllowExternalDb` is obsolete. The normal Crime PI database is `67.225.176.136` / `SentinelStaging` with approved TLS hostname `PW9FEZ.cus.win.liquidweb.com` (SAXIO PR #856+).
 
 `Stop-Local1.cmd` stops Local 1 application listeners (EVO, PI, gateway, Sentinel Web, SAXIO Web, Vite HMR). It does not stop Docker SQL.
 
@@ -58,8 +58,8 @@ C:\Allprojects\Stop-Local1.cmd
 
 1. Sentinel Web runtime worktree (`Local1\Sentinel-Web-Runtime`)
 2. Sentinel-Logic runtime worktree and junction (`Local1\Sentinel-Logic-Runtime` → `Local1\Sentinel-Logic`)
-3. Optional Docker SQL, only with `-UseDockerSql`
-4. SAXIO-Sentinel PI database authority, then PI API `:5038`
+3. Optional Docker SQL only when `-UseDockerSql` is passed (never part of the default numbered sequence; Docker is not checked by default)
+4. Resolve hostname-capable SAXIO checkout (PR #856+ / `PW9FEZ.cus.win.liquidweb.com`), validate PI DB authority, then PI API `:5038`
 5. EVO Auth/API `:5000`
 6. Local Gateway `:8080`
 7. Sentinel Web `:5173`

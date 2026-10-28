@@ -21,8 +21,11 @@ if not "%LOCAL1_PORTFOLIO_ROOT%"=="" (
 if "%ALLPROJECTS:~-1%"=="\" set "ALLPROJECTS=%ALLPROJECTS:~0,-1%"
 
 set "MANIFEST=%SCRIPT_ROOT%\runtime.manifest.json"
+rem Secrets stay at the canonical SAXIO-Sentinel path; PI source may resolve to a #856-capable checkout.
 set "ENV_LOCAL=%ALLPROJECTS%\SAXIO-Sentinel\runtime\local1\.env.local"
-set "REPO_SENTINEL=%ALLPROJECTS%\SAXIO-Sentinel"
+set "REPO_SENTINEL="
+set "DB_AUTHORITY="
+set "PI_LAUNCHER="
 set "REPO_EVO=%ALLPROJECTS%\Evo-Services\Evo-Service"
 set "REPO_GATEWAY=%ALLPROJECTS%\local-gateway"
 set "REPO_SENTINEL_WEB_DEV=%ALLPROJECTS%\Sentinel Web"
@@ -30,10 +33,9 @@ set "REPO_SENTINEL_WEB_RUNTIME=%ALLPROJECTS%\Local1\Sentinel-Web-Runtime"
 set "SENTINEL_WEB_RUNTIME_BRANCH=runtime/local1-sentinel-web"
 set "SENTINEL_WEB_UPSTREAM=origin/main"
 set "REPO_SAXIO_WEB=%ALLPROJECTS%\Evo-Web\Evo-Web"
-set "DB_AUTHORITY=%REPO_SENTINEL%\runtime\local1\startup-db-authority.ps1"
-set "PI_LAUNCHER=%REPO_SENTINEL%\runtime\local1\launch-pi-api.cmd"
 set "SQL_BOOTSTRAP=%SCRIPT_ROOT%\runtime\local1\Start-Local1Sql.ps1"
 set "SENTINEL_LOGIC_BOOTSTRAP=%SCRIPT_ROOT%\runtime\local1\Ensure-Local1SentinelLogic.ps1"
+set "CANONICAL_SQL_TLS_HOST=PW9FEZ.cus.win.liquidweb.com"
 
 set "WAIT_SECONDS=240"
 set "FAIL_REASON="
@@ -71,6 +73,10 @@ if not exist "%MANIFEST%" (
   call :fail "Governed runtime manifest is missing." "Create or restore %MANIFEST%"
   goto :eof
 )
+
+rem Resolve SAXIO checkout that accepts canonical TLS hostname (PR #856+) before any Docker/SQL steps.
+call :resolve_saxio_repo
+if errorlevel 1 goto :eof
 
 rem ===========================================================================
 rem  Preflight: required tooling and Sentinel Web dependency state
@@ -175,7 +181,13 @@ echo ================================================================
 echo  Local 1 Startup
 echo  Manifest: %MANIFEST%
 echo  Canonical Crime PI DB: 67.225.176.136 / SentinelStaging
-echo  Docker SQL override: %USE_DOCKER_SQL%
+echo  Approved TLS hostname: %CANONICAL_SQL_TLS_HOST%
+echo  SAXIO repository: %REPO_SENTINEL%
+if "%USE_DOCKER_SQL%"=="1" (
+  echo  Docker SQL: ENABLED ^(-UseDockerSql secondary localhost,14333^)
+) else (
+  echo  Docker SQL: not used ^(pass -UseDockerSql only for secondary localhost,14333^)
+)
 echo ================================================================
 echo.
 
@@ -200,14 +212,12 @@ set "VITE_PI_ENABLE_SAXIO_AUTHORIZED_WORKFLOWS=true"
 set "NODE_OPTIONS=--openssl-legacy-provider --max-old-space-size=8192"
 if "%SAXIO_SENTINEL_DOCKER_PORT%"=="" set "SAXIO_SENTINEL_DOCKER_PORT=14333"
 
-rem ===========================================================================
-rem  1) Docker SQL (secondary Crime PI substrate)
-rem ===========================================================================
-echo.
-echo [1/6] Docker SQL Server
+rem Optional Docker SQL substrate — never part of the default numbered startup sequence.
 if "%USE_DOCKER_SQL%"=="1" (
+  echo.
+  echo [docker-sql] Starting secondary Docker SQL Server ^(explicit -UseDockerSql^)...
   if not exist "%REPO_SENTINEL%\docker-compose.local.yml" (
-    call :fail "docker-compose.local.yml not found under SAXIO-Sentinel." "Confirm SAXIO-Sentinel is cloned at %REPO_SENTINEL%"
+    call :fail "docker-compose.local.yml not found under resolved SAXIO checkout." "Confirm SAXIO checkout at %REPO_SENTINEL% includes docker-compose.local.yml"
     goto :eof
   )
 
@@ -222,28 +232,25 @@ if "%USE_DOCKER_SQL%"=="1" (
 
   call :wait_port 14333 "Docker SQL Server"
   if errorlevel 1 goto :eof
-) else (
-  echo SKIPPED: Docker SQL is secondary. Canonical Crime PI is 67.225.176.136 / SentinelStaging.
-  echo Use -UseDockerSql to require localhost,14333.
 )
 
 echo.
 echo [db] Validating governed PI database authority...
 if "%USE_DOCKER_SQL%"=="1" (
-  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%" -UseDockerSql
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%" -Repository "%REPO_SENTINEL%" -EnvironmentFile "%ENV_LOCAL%" -UseDockerSql
 ) else (
-  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%"
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%" -Repository "%REPO_SENTINEL%" -EnvironmentFile "%ENV_LOCAL%"
 )
 if errorlevel 1 (
-  call :fail "PI database authority validation failed." "Correct the reported Local 1 database configuration and retry."
+  call :fail "PI database authority validation failed." "Correct the reported Local 1 database configuration and retry. Ensure SAXIO authority accepts %CANONICAL_SQL_TLS_HOST% ^(PR #856+^)."
   goto :eof
 )
 
 rem ===========================================================================
-rem  2) EVO Auth/API
+rem  1) EVO Auth/API
 rem ===========================================================================
 echo.
-echo [2/6] EVO Auth/API
+echo [1/5] EVO Auth/API
 if not exist "%REPO_EVO%\Evo.Service.Host.API\Evo.Service.Host.API.csproj" (
   call :fail "EVO API project not found." "Confirm Evo-Service is cloned at %REPO_EVO%"
   goto :eof
@@ -262,12 +269,12 @@ if errorlevel 1 goto :eof
 :evo_auth_api_ready
 
 rem ===========================================================================
-rem  3) Portfolio Intelligence API
+rem  2) Portfolio Intelligence API
 rem ===========================================================================
 echo.
-echo [3/6] Portfolio Intelligence API
+echo [2/5] Portfolio Intelligence API
 if not exist "%REPO_SENTINEL%\services\portfolio-intelligence-api\Saxio.Sentinel.PortfolioIntelligence.Api.csproj" (
-  call :fail "PI API project not found." "Confirm SAXIO-Sentinel services\\portfolio-intelligence-api exists."
+  call :fail "PI API project not found." "Confirm resolved SAXIO checkout at %REPO_SENTINEL% contains services\\portfolio-intelligence-api."
   goto :eof
 )
 
@@ -277,28 +284,28 @@ if not errorlevel 1 (
   goto pi_api_ready
 )
 
-if not exist "%PI_LAUNCHER%" (
-  call :fail "Governed PI launcher is missing." "Confirm SAXIO-Sentinel runtime\\local1\\launch-pi-api.cmd exists."
+if not exist "%DB_AUTHORITY%" (
+  call :fail "Governed PI authority script is missing." "Confirm resolved SAXIO checkout includes runtime\\local1\\startup-db-authority.ps1"
   goto :eof
 )
 
-rem Launch PI from current SAXIO-Sentinel. Canonical DB is 67-server SentinelStaging.
+rem Launch PI via SAXIO authority against resolved checkout + canonical .env.local secrets.
+rem Pass -Repository/-EnvironmentFile so a stale Allprojects\SAXIO-Sentinel checkout cannot override hostname validation.
 if "%USE_DOCKER_SQL%"=="1" (
-  start "Local1 - PI API" cmd /c call "%PI_LAUNCHER%" -UseDockerSql
+  start "Local1 - PI API" cmd /c powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%" -Repository "%REPO_SENTINEL%" -EnvironmentFile "%ENV_LOCAL%" -LaunchPiApi -UseDockerSql
 ) else (
-  start "Local1 - PI API" cmd /c call "%PI_LAUNCHER%"
+  start "Local1 - PI API" cmd /c powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%DB_AUTHORITY%" -Repository "%REPO_SENTINEL%" -EnvironmentFile "%ENV_LOCAL%" -LaunchPiApi
 )
-
 
 call :wait_http_status "http://127.0.0.1:5038/api/health/db" "200" "Portfolio Intelligence API /api/health/db"
 if errorlevel 1 goto :eof
 :pi_api_ready
 
 rem ===========================================================================
-rem  4) Local Gateway
+rem  3) Local Gateway
 rem ===========================================================================
 echo.
-echo [4/6] Local Gateway
+echo [3/5] Local Gateway
 if not exist "%REPO_GATEWAY%\package.json" (
   call :fail "local-gateway not found." "Confirm local-gateway is cloned at %REPO_GATEWAY%"
   goto :eof
@@ -317,10 +324,10 @@ if errorlevel 1 goto :eof
 :local_gateway_ready
 
 rem ===========================================================================
-rem  5) Sentinel Web
+rem  4) Sentinel Web
 rem ===========================================================================
 echo.
-echo [5/6] Sentinel Web
+echo [4/5] Sentinel Web
 if not exist "%REPO_SENTINEL_WEB_RUNTIME%\package.json" (
   call :fail "Sentinel Web runtime checkout is missing." "Confirm Sentinel Web runtime worktree exists at %REPO_SENTINEL_WEB_RUNTIME%"
   goto :eof
@@ -342,10 +349,10 @@ if errorlevel 1 goto :eof
 :sentinel_web_ready
 
 rem ===========================================================================
-rem  6) SAXIO Web
+rem  5) SAXIO Web
 rem ===========================================================================
 echo.
-echo [6/6] SAXIO Web
+echo [5/5] SAXIO Web
 if not exist "%REPO_SAXIO_WEB%\package.json" (
   call :fail "SAXIO Web / Evo-Web not found." "Confirm Evo-Web is cloned at %REPO_SAXIO_WEB%"
   goto :eof
@@ -393,6 +400,71 @@ exit /b 0
 rem =============================================================================
 rem  Helpers
 rem =============================================================================
+
+:resolve_saxio_repo
+rem Prefer LOCAL1_SAXIO_REPO, then default SAXIO-Sentinel if it accepts PW9FEZ, else a Local1 worktree with PR #856 hostname mapping.
+set "REPO_SENTINEL="
+if not "%LOCAL1_SAXIO_REPO%"=="" (
+  set "REPO_SENTINEL=%LOCAL1_SAXIO_REPO%"
+  goto resolve_saxio_verify
+)
+
+if exist "%ALLPROJECTS%\SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1" (
+  findstr /I /C:"PW9FEZ.cus.win.liquidweb.com" "%ALLPROJECTS%\SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1" >NUL 2>&1
+  if not errorlevel 1 (
+    set "REPO_SENTINEL=%ALLPROJECTS%\SAXIO-Sentinel"
+    goto resolve_saxio_paths
+  )
+)
+
+if exist "%ALLPROJECTS%\_wt\saxio-local1-main-920bcb8b\runtime\local1\startup-db-authority.ps1" (
+  findstr /I /C:"PW9FEZ.cus.win.liquidweb.com" "%ALLPROJECTS%\_wt\saxio-local1-main-920bcb8b\runtime\local1\startup-db-authority.ps1" >NUL 2>&1
+  if not errorlevel 1 (
+    set "REPO_SENTINEL=%ALLPROJECTS%\_wt\saxio-local1-main-920bcb8b"
+    goto resolve_saxio_paths
+  )
+)
+
+for /d %%D in ("%ALLPROJECTS%\_wt\saxio*") do (
+  if exist "%%~fD\runtime\local1\startup-db-authority.ps1" (
+    findstr /I /C:"PW9FEZ.cus.win.liquidweb.com" "%%~fD\runtime\local1\startup-db-authority.ps1" >NUL 2>&1
+    if not errorlevel 1 (
+      set "REPO_SENTINEL=%%~fD"
+      goto resolve_saxio_paths
+    )
+  )
+)
+
+call :fail "No SAXIO checkout accepts canonical TLS hostname PW9FEZ.cus.win.liquidweb.com." "Update C:\Allprojects\SAXIO-Sentinel to origin/main ^(includes PR #856 hostname mapping^), or set LOCAL1_SAXIO_REPO to a checkout that contains that fix. Do not substitute the SQL IP into the TLS connection string."
+exit /b 1
+
+:resolve_saxio_verify
+if not exist "%REPO_SENTINEL%\runtime\local1\startup-db-authority.ps1" (
+  call :fail "LOCAL1_SAXIO_REPO is missing startup-db-authority.ps1." "Point LOCAL1_SAXIO_REPO at a SAXIO checkout that includes runtime\local1\startup-db-authority.ps1."
+  exit /b 1
+)
+findstr /I /C:"PW9FEZ.cus.win.liquidweb.com" "%REPO_SENTINEL%\runtime\local1\startup-db-authority.ps1" >NUL 2>&1
+if errorlevel 1 (
+  call :fail "LOCAL1_SAXIO_REPO does not include PW9FEZ hostname authority validation." "Point LOCAL1_SAXIO_REPO at a SAXIO checkout that includes PR #856 ^(Test-Local1CanonicalSqlHost accepts PW9FEZ^)."
+  exit /b 1
+)
+
+:resolve_saxio_paths
+if "%REPO_SENTINEL:~-1%"=="\" set "REPO_SENTINEL=%REPO_SENTINEL:~0,-1%"
+set "DB_AUTHORITY=%REPO_SENTINEL%\runtime\local1\startup-db-authority.ps1"
+set "PI_LAUNCHER=%REPO_SENTINEL%\runtime\local1\launch-pi-api.cmd"
+if not exist "%DB_AUTHORITY%" (
+  call :fail "Startup database authority is missing after SAXIO resolve." "Create or restore %DB_AUTHORITY%"
+  exit /b 1
+)
+echo.
+echo SAXIO Crime PI source:
+echo   Repository: %REPO_SENTINEL%
+echo   Authority:  %DB_AUTHORITY%
+echo   Secrets:    %ENV_LOCAL%
+echo   TLS host:   %CANONICAL_SQL_TLS_HOST% ^(accepted with 67.225.176.136^)
+echo   Result: PASS
+exit /b 0
 
 :fail
 echo.
@@ -620,7 +692,7 @@ if not errorlevel 1 (
 )
 set /a "_I+=2"
 if %_I% GEQ %WAIT_SECONDS% (
-  call :fail "%_LABEL% did not open port %_PORT% within %WAIT_SECONDS%s." "Inspect Docker Desktop / container logs for sentinel-staging-sql."
+  call :fail "%_LABEL% did not open port %_PORT% within %WAIT_SECONDS%s." "Inspect the Local1 console for %_LABEL%. For -UseDockerSql, review sentinel-staging-sql container logs."
   exit /b 1
 )
 ping -n 3 127.0.0.1 >NUL
