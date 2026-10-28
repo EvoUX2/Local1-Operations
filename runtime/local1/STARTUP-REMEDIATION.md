@@ -10,7 +10,8 @@ Local1-Operations orchestrates startup/stop. SAXIO-Sentinel owns PI/database sel
 
 - `Start-Local1.cmd` launches PI through `SAXIO-Sentinel\runtime\local1\launch-pi-api.cmd`.
 - Database selection is delegated to `SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1`. Local1-Operations does not keep a copy of that script.
-- Docker SQL credential resolution and Compose run only when `-UseDockerSql` is passed.
+- Docker SQL credential resolution and Compose run only when `-UseDockerSql` is passed; default startup never starts Docker, checks the daemon, or numbers a Docker step.
+- Start-Local1 resolves a SAXIO checkout that accepts TLS hostname `PW9FEZ.cus.win.liquidweb.com` (PR #856+) and passes `-Repository` / `-EnvironmentFile` into authority validation and PI launch.
 - EVO Auth/API, Local Gateway, Sentinel Web, and SAXIO Web do not depend on Docker SQL in the default path.
 - `-AllowExternalDb` is obsolete. It is accepted only to print a note.
 - `Stop-Local1.cmd` is owned by this repository. It stops application listeners and leaves Docker SQL running.

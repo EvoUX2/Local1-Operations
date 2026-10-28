@@ -23,15 +23,22 @@ C:\Allprojects\Start-Local1.cmd
   |     runtime branch:       runtime/local1-sentinel-logic
   |     upstream authority:   origin/main
   |
+  +-- resolve SAXIO Crime PI source (PR #856+ hostname mapping required)
+  |     prefer LOCAL1_SAXIO_REPO, else SAXIO-Sentinel if it accepts
+  |     PW9FEZ.cus.win.liquidweb.com, else a Local1 `_wt\saxio*` checkout
+  |     secrets remain: SAXIO-Sentinel\runtime\local1\.env.local
+  |
   +-- [optional, -UseDockerSql only]
   |     Local1-Operations\runtime\local1\Start-Local1Sql.ps1
-  |       docker compose -f SAXIO-Sentinel\docker-compose.local.yml up -d
+  |       docker compose -f <resolved-SAXIO>\docker-compose.local.yml up -d
   |       sentinel-staging-sql -> localhost:14333
+  |       not part of default numbered startup; Docker daemon is never checked by default
   |
-  +-- SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1
+  +-- <resolved-SAXIO>\runtime\local1\startup-db-authority.ps1
   |     SAXIO owns PI/database selection
   |     default: ConnectionStrings__SentinelStagingDb
   |              67.225.176.136 / SentinelStaging
+  |              TLS hostname PW9FEZ.cus.win.liquidweb.com accepted (same host)
   |     -UseDockerSql: SQL_CONNECTION_STRING
   |                    localhost,14333 / SentinelStaging
   |     -AllowExternalDb is obsolete (note only; not an authority)
@@ -40,23 +47,17 @@ C:\Allprojects\Start-Local1.cmd
   |     set SENTINEL_LOGIC_ROOT (Local1 junction or Sentinel-Logic)
   |     print server, database, HEAD SHA, SENTINEL_LOGIC_ROOT
   |
-  +-- EVO Auth/API :5000
+  +-- [1/5] EVO Auth/API :5000
   |     C:\Allprojects\Evo-Services\Evo-Service
   |
-  +-- SAXIO-Sentinel\runtime\local1\launch-pi-api.cmd
-  |     current SAXIO-Sentinel checkout (not C:\tmp\pi-runtime-5038-restoration)
-  |     |
-  |     +-- SAXIO-Sentinel\runtime\local1\startup-db-authority.ps1 -LaunchPiApi
-  |           repeat fail-fast validation
-  |           load Local 1 environment
-  |           set SENTINEL_LOGIC_ROOT
-  |           set all three PI connection aliases to one SAXIO-selected authority
-  |           dotnet run --no-launch-profile from current SAXIO-Sentinel
-  |           Portfolio Intelligence API :5038
+  +-- [2/5] PI via startup-db-authority.ps1 -LaunchPiApi
+  |     -Repository <resolved-SAXIO> -EnvironmentFile <canonical .env.local>
+  |     not C:\tmp\pi-runtime-5038-restoration
+  |     Portfolio Intelligence API :5038
   |
-  +-- Local Gateway :8080
-  +-- Sentinel Web :5173 (from C:\Allprojects\Local1\Sentinel-Web-Runtime)
-  +-- SAXIO Web :4201
+  +-- [3/5] Local Gateway :8080
+  +-- [4/5] Sentinel Web :5173 (from C:\Allprojects\Local1\Sentinel-Web-Runtime)
+  +-- [5/5] SAXIO Web :4201
   +-- final HTTP health verification
 ```
 

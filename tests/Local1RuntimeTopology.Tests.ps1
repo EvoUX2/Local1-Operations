@@ -36,14 +36,17 @@ $saxioAuthority = 'C:\Allprojects\SAXIO-Sentinel\runtime\local1\startup-db-autho
 $saxioLauncher = 'C:\Allprojects\SAXIO-Sentinel\runtime\local1\launch-pi-api.cmd'
 
 try {
-    Invoke-Test '1 Default launcher skips Docker SQL compose' {
-        Assert-True ($launcher -match 'SKIPPED: Docker SQL is secondary') 'Default skip message is missing.'
+    Invoke-Test '1 Default launcher does not start or require Docker SQL' {
+        Assert-True ($launcher -match 'Docker SQL: not used') 'Default banner must state Docker SQL is not used.'
+        Assert-True ($launcher -notmatch '\[1/6\] Docker SQL Server') 'Default numbered steps must not include Docker SQL.'
+        Assert-True ($launcher -notmatch 'SKIPPED: Docker SQL is secondary') 'Default path must not print a Docker SKIPPED step.'
         Assert-True ($launcher -match 'if "%USE_DOCKER_SQL%"=="1"') 'UseDockerSql guard is missing.'
         $composeCall = '"%SQL_BOOTSTRAP%" -SentinelRepositoryPath "%REPO_SENTINEL%"'
         $composeIndex = $launcher.LastIndexOf($composeCall)
         Assert-True ($composeIndex -gt 0) 'Docker SQL bootstrap invocation is missing.'
         $guardBeforeCompose = $launcher.LastIndexOf('if "%USE_DOCKER_SQL%"=="1"', $composeIndex)
         Assert-True ($guardBeforeCompose -ge 0) 'Docker SQL bootstrap is not inside a UseDockerSql guard.'
+        Assert-True ($launcher -notmatch '(?i)docker info|docker version|Docker Desktop') 'Default launcher must not check Docker daemon/install status.'
     }
 
     Invoke-Test '2 SQL secret validation is UseDockerSql-only' {
@@ -55,8 +58,12 @@ try {
     }
 
     Invoke-Test '3 PI/database authority is delegated to SAXIO-Sentinel' {
+        Assert-True ($launcher -match 'call :resolve_saxio_repo') 'Launcher does not resolve a hostname-capable SAXIO checkout.'
+        Assert-True ($launcher -match 'PW9FEZ\.cus\.win\.liquidweb\.com') 'Launcher does not require approved TLS hostname PW9FEZ.'
         Assert-True ($launcher.Contains('set "DB_AUTHORITY=%REPO_SENTINEL%\runtime\local1\startup-db-authority.ps1"')) 'Launcher does not delegate DB authority to SAXIO-Sentinel.'
-        Assert-True ($launcher.Contains('set "PI_LAUNCHER=%REPO_SENTINEL%\runtime\local1\launch-pi-api.cmd"')) 'Launcher does not delegate PI launch to SAXIO-Sentinel.'
+        Assert-True ($launcher.Contains('set "PI_LAUNCHER=%REPO_SENTINEL%\runtime\local1\launch-pi-api.cmd"')) 'Launcher does not retain PI launcher path from resolved SAXIO checkout.'
+        Assert-True ($launcher -match '-Repository "%REPO_SENTINEL%" -EnvironmentFile "%ENV_LOCAL%"') 'Launcher does not pass resolved repository and canonical secrets to authority.'
+        Assert-True ($launcher -match '-LaunchPiApi') 'Launcher does not launch PI through SAXIO authority.'
         Assert-True (-not (Test-Path -LiteralPath $duplicateAuthorityPath -PathType Leaf)) 'Local1-Operations still duplicates SAXIO startup-db-authority.ps1.'
         Assert-True (Test-Path -LiteralPath $saxioAuthority -PathType Leaf) 'SAXIO startup-db-authority.ps1 is missing.'
         Assert-True (Test-Path -LiteralPath $saxioLauncher -PathType Leaf) 'SAXIO launch-pi-api.cmd is missing.'
@@ -112,11 +119,11 @@ try {
             Assert-True ($null -ne $service) "Manifest is missing service $id."
             Assert-True ($service.requiredByDefault -eq $true) "$id is not required by default."
         }
-        Assert-True ($launcher -match '\[2/6\] EVO Auth/API') 'Launcher lost EVO Auth/API startup.'
-        Assert-True ($launcher -match '\[3/6\] Portfolio Intelligence API') 'Launcher lost PI API startup.'
-        Assert-True ($launcher -match '\[4/6\] Local Gateway') 'Launcher lost Local Gateway startup.'
-        Assert-True ($launcher -match '\[5/6\] Sentinel Web') 'Launcher lost Sentinel Web startup.'
-        Assert-True ($launcher -match '\[6/6\] SAXIO Web') 'Launcher lost SAXIO Web startup.'
+        Assert-True ($launcher -match '\[1/5\] EVO Auth/API') 'Launcher lost EVO Auth/API startup.'
+        Assert-True ($launcher -match '\[2/5\] Portfolio Intelligence API') 'Launcher lost PI API startup.'
+        Assert-True ($launcher -match '\[3/5\] Local Gateway') 'Launcher lost Local Gateway startup.'
+        Assert-True ($launcher -match '\[4/5\] Sentinel Web') 'Launcher lost Sentinel Web startup.'
+        Assert-True ($launcher -match '\[5/5\] SAXIO Web') 'Launcher lost SAXIO Web startup.'
         Assert-True ($launcher -match 'Ensure-Local1SentinelLogic.ps1') 'Launcher lost Sentinel-Logic runtime provisioning.'
     }
 }

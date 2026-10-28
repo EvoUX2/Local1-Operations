@@ -9,7 +9,7 @@
     "stop": "C:\\Allprojects\\Stop-Local1.cmd",
     "stopSource": "C:\\Allprojects\\Local1-Operations\\Stop-Local1.cmd",
     "engine": "windows-cmd",
-    "notes": "Default Crime PI substrate is 67.225.176.136 / SentinelStaging, selected by SAXIO-Sentinel runtime/local1/startup-db-authority.ps1 and launched by SAXIO-Sentinel runtime/local1/launch-pi-api.cmd. Docker SQL is an explicit -UseDockerSql development/test override, not a default startup dependency. -AllowExternalDb is obsolete and is not an authority. Secure SQL credential resolution and Docker Compose run only on the -UseDockerSql path."
+    "notes": "Default Crime PI substrate is 67.225.176.136 / SentinelStaging (TLS hostname PW9FEZ.cus.win.liquidweb.com accepted by SAXIO PR #856+). Start-Local1.cmd resolves a hostname-capable SAXIO checkout, validates via startup-db-authority.ps1, and launches PI with -Repository/-EnvironmentFile. Docker SQL is an explicit -UseDockerSql override only — never started, checked, or numbered in the default sequence. -AllowExternalDb is obsolete and is not an authority."
   },
   "crimePiDatabase": {
     "authorityRepository": "SAXIO-Sentinel",
@@ -18,9 +18,12 @@
     "environmentFile": "C:\\Allprojects\\SAXIO-Sentinel\\runtime\\local1\\.env.local",
     "default": {
       "server": "67.225.176.136",
+      "tlsHostname": "PW9FEZ.cus.win.liquidweb.com",
       "port": 1433,
       "database": "SentinelStaging",
       "connectionSource": "ConnectionStrings__SentinelStagingDb",
+      "encrypt": true,
+      "trustServerCertificate": false,
       "overrideFlag": null
     },
     "dockerSqlOverride": {
